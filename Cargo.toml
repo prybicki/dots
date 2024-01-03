@@ -1,0 +1,20 @@
+[package]
+name = "dots"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+bevy = "0.11.3"
+bevy_spatial = "0.6.0"
+rustfmt = "0.10.0"
+rand = "0.6.5"
+
+[[bin]]
+name = "dots"
+path = "src/dots.rs"
+
+[[bin]]
+name = "gamepads"
+path = "gamepads.rs"
