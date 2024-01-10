@@ -1,4 +1,4 @@
-use crate::{CameraConfig, MainCamera};
+use crate::{Border, CameraConfig, MainCamera};
 use crate::{Dot, MeshHandles};
 use bevy::asset::Assets;
 use bevy::input::Input;
@@ -7,6 +7,7 @@ use bevy::prelude::*;
 use bevy::sprite::MaterialMesh2dBundle;
 use bevy::window::PrimaryWindow;
 use bevy_spatial::kdtree::KDTree2;
+use std::ops::Mul;
 
 use rand::Rng;
 
@@ -44,6 +45,7 @@ pub fn control_dots(
     dots: Query<(Entity, With<Dot>)>,
     camera: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
     window: Query<&Window, With<PrimaryWindow>>,
+    border: Query<&Border>,
     meshes: Res<MeshHandles>,
     mut colors: ResMut<Assets<ColorMaterial>>,
     mut commands: Commands,
@@ -51,6 +53,7 @@ pub fn control_dots(
     let (camera, camera_transform) = camera.single();
     if keyboard.just_pressed(KeyCode::F) {
         let area = get_visible_world_rect(camera, camera_transform, window.single());
+        let area = border.single().area.intersect(area);
         spawn_particles(area, 1024, &meshes, &mut colors, &mut commands)
     }
     if keyboard.just_pressed(KeyCode::C) {
@@ -103,7 +106,8 @@ fn spawn_particles(
         let velocity = Vec2::new(
             rand::thread_rng().gen_range(-1.0, 1.0),
             rand::thread_rng().gen_range(-1.0, 1.0),
-        );
+        )
+        .mul(Vec2::splat(4.0));
         let bundle = MaterialMesh2dBundle {
             transform,
             mesh: mesh.clone(),
@@ -135,5 +139,30 @@ pub fn update_colorize(
 pub fn update_dots(_tree: Res<NNTree>, mut query: Query<(&mut Transform, &Dot)>) {
     for (mut tf, dot) in query.iter_mut() {
         tf.translation += Vec3::from((dot.velocity, 0.0));
+    }
+}
+
+pub fn update_border(
+    border: Query<&Border, Without<Dot>>,
+    mut objects: Query<(Entity, &mut Transform, &mut Dot)>,
+) {
+    let rect = border.single().area;
+    for (entity, mut tf, mut dot) in objects.iter_mut() {
+        if tf.translation.x < rect.min.x {
+            tf.translation.x = rect.min.x;
+            dot.velocity.x *= -1.0;
+        }
+        if tf.translation.y < rect.min.y {
+            tf.translation.y = rect.min.y;
+            dot.velocity.y *= -1.0;
+        }
+        if tf.translation.x > rect.max.x {
+            tf.translation.x = rect.max.x;
+            dot.velocity.x *= -1.0;
+        }
+        if tf.translation.y > rect.max.y {
+            tf.translation.y = rect.max.y;
+            dot.velocity.y *= -1.0;
+        }
     }
 }

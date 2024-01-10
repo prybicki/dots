@@ -36,6 +36,11 @@ pub struct Dot {
     velocity: Vec2,
 }
 
+#[derive(Component)]
+pub struct Border {
+    area: Rect,
+}
+
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins.set(WindowPlugin {
@@ -53,9 +58,11 @@ fn main() {
         .insert_resource(ClearColor(Color::BLACK))
         .add_systems(Startup, setup_camera)
         .add_systems(Startup, setup_meshes)
+        .add_systems(Startup, setup_environment)
         .add_systems(Update, control_camera)
         .add_systems(Update, control_dots)
         .add_systems(Update, update_dots)
-        .add_systems(Update, update_colorize)
+        // .add_systems(Update, update_colorize)
+        .add_systems(Update, update_border)
         .run();
 }
