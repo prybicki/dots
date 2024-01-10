@@ -1,5 +1,7 @@
-use crate::{Border, CameraConfig, MainCamera};
-use crate::{Dot, MeshHandles};
+use crate::{
+    Border, CameraConfig, Charge, Charges, Dot, DotBundle, EmissionEvent, MainCamera, NNTree,
+};
+use crate::{MeshHandles, Velocity};
 use bevy::asset::Assets;
 use bevy::input::Input;
 use bevy::math::{Vec2, Vec3};
@@ -7,6 +9,8 @@ use bevy::prelude::*;
 use bevy::sprite::MaterialMesh2dBundle;
 use bevy::window::PrimaryWindow;
 use bevy_spatial::kdtree::KDTree2;
+use bevy_spatial::SpatialAccess;
+use num::clamp;
 use std::ops::Mul;
 
 use rand::Rng;
@@ -42,7 +46,7 @@ pub fn control_camera(
 
 pub fn control_dots(
     keyboard: Res<Input<KeyCode>>,
-    dots: Query<(Entity, With<Dot>)>,
+    dots: Query<(Entity, With<Velocity>)>,
     camera: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
     window: Query<&Window, With<PrimaryWindow>>,
     border: Query<&Border>,
@@ -107,44 +111,47 @@ fn spawn_particles(
             rand::thread_rng().gen_range(-1.0, 1.0),
             rand::thread_rng().gen_range(-1.0, 1.0),
         )
-        .mul(Vec2::splat(4.0));
-        let bundle = MaterialMesh2dBundle {
-            transform,
-            mesh: mesh.clone(),
-            material: cs.pop().unwrap(),
-            ..default()
+        .mul(Vec2::splat(1.0));
+        let rgb = (
+            rand::thread_rng().gen_range(0.0, 1.0),
+            rand::thread_rng().gen_range(0.0, 1.0),
+            rand::thread_rng().gen_range(0.0, 1.0),
+        );
+        let dot = DotBundle {
+            dot: Dot,
+            velocity: Velocity { velocity },
+            charges: Charges::rgb(rgb),
+            cm2d_bundle: ColorMesh2dBundle {
+                transform,
+                mesh: mesh.clone(),
+                material: cs.pop().unwrap(),
+                ..default()
+            },
         };
-        return (bundle, Dot { velocity });
+        return dot;
     }));
 }
 
-type NNTree = KDTree2<Dot>;
-
 pub fn update_colorize(
-    time: Res<Time>,
-    objects: Query<(&mut Transform, &mut Handle<ColorMaterial>)>,
+    objects: Query<(&Charges, &mut Handle<ColorMaterial>)>,
     mut color_materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    for (tf, obj_mat_handle) in objects.iter() {
-        let (r, g, b) = (
-            (tf.translation.x / 256.0).sin().abs(),
-            (tf.translation.y / 256.0).sin().abs(),
-            time.elapsed_seconds().sin().abs(),
-        );
+    for (charges, obj_mat_handle) in objects.iter() {
+        let (r, g, b) = charges.to_rgb();
         let object_material = color_materials.get_mut(obj_mat_handle).unwrap();
         object_material.color = Color::rgb(r, g, b);
     }
 }
 
-pub fn update_dots(_tree: Res<NNTree>, mut query: Query<(&mut Transform, &Dot)>) {
+pub fn update_velocity(mut query: Query<(&mut Transform, &Velocity)>) {
     for (mut tf, dot) in query.iter_mut() {
         tf.translation += Vec3::from((dot.velocity, 0.0));
     }
 }
 
 pub fn update_border(
-    border: Query<&Border, Without<Dot>>,
-    mut objects: Query<(Entity, &mut Transform, &mut Dot)>,
+    border: Query<&Border, Without<Velocity>>,
+    mut objects: Query<(Entity, &mut Transform, &mut Velocity)>,
 ) {
     let rect = border.single().area;
     for (entity, mut tf, mut dot) in objects.iter_mut() {
@@ -166,3 +173,45 @@ pub fn update_border(
         }
     }
 }
+
+pub fn update_charge(
+    tree: Res<NNTree>,
+    mut charges: Query<(&Transform, &mut Charges)>,
+    // mut emissions: EventWriter<EmissionEvent>,
+) {
+    let mut emissions: Vec<(Vec2, Color)> = vec![];
+    for (tf, mut charges) in charges.iter_mut() {
+        let charges = &mut charges.0;
+        for charge in charges {
+            charge.inner = clamp(charge.inner + 0.0001, 0.0, 1.0); // Build up
+            charge.outer = clamp(charge.outer - 0.05, 0.01, 1.0); // Dissipation
+            if charge.inner < 1.0 {
+                continue;
+            }
+            // Emission
+            charge.outer = charge.inner;
+            charge.inner = 0.0;
+            // Propagation
+            emissions.push((tf.translation.truncate(), charge.color))
+        }
+    }
+
+    for (em_pos, em_col) in emissions {
+        for (pos, entity) in tree.within_distance(em_pos, 128.0) {
+            let (_, mut receiver_charges) = charges.get_mut(entity.unwrap()).unwrap();
+            let rec_charges = &mut receiver_charges.0;
+            for rec_charge in rec_charges {
+                if rec_charge.color == em_col {
+                    rec_charge.inner = clamp(rec_charge.inner + 0.01, 0.0, 1.0);
+                }
+            }
+        }
+    }
+}
+
+// pub fn update_emissions(
+//     tree: Res<NNTree>,
+//     emissions: EventReader<EmissionEvent>
+// ) {
+//     for
+// }
